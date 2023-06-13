@@ -6,51 +6,87 @@ set -e
 # define an echo that only outputs to stderr
 echoerr() { echo "$@" 1>&2; }
 
+find-shell-scripts() {
+    SHELL_SCRIPTS_TO_PATCH=$(find "$1" | xargs file | grep shell | sed 's/\(.*\):\(.*\)/\1/' | grep -v 'guixify-pharo$' | grep -v .git)
+}
+
+fix-shell-scripts-paths() {
+    find-shell-scripts "$1"
+    echoerr "  |"    
+    echoerr "  +- Fixing shell scripts paths:"
+    for script in ${SHELL_SCRIPTS_TO_PATCH}
+    do
+	fix-paths "${script}"
+    done
+}
+
 fix-paths() {
-    echoerr "  Fixing paths for script: $1"
+    echoerr "     |"
+    echoerr "     +- Fixing paths for script: $1"    
     sed -i "s,/usr/bin/dirname,$(which dirname),g" "$1"
     sed -i "s,/usr/bin/ldd,$(which ldd),g" "$1"
     sed -i "s,/bin/fgrep,$(which fgrep),g" "$1"    
 }
 
+find-pharo-lib() {
+    PHARO_LIB=$(find "$1" -name pharo | xargs file | grep ELF | sed 's/\(.*\):\(.*\)/\1/')
+}
+
 fix-interpreter() {
-    echoerr "  Fixing dynamic interpreter for library: $1"
+    find-pharo-lib "$1"
+    echoerr "  |"
+    echoerr "  +- Fixing dynamic interpreter for Pharo lib: $PHARO_LIB"    
     GLIBC_PATH=`guix build glibc | grep -v '\(.*\)-glibc\(-.*\)\(-.*\)'`
     INTERPRETER_PATH="${GLIBC_PATH}/lib/ld-linux-x86-64.so.2"
-    patchelf --set-interpreter ${INTERPRETER_PATH} "$1"
+    patchelf --set-interpreter ${INTERPRETER_PATH} ${PHARO_LIB}
+}
+
+find-libgit2-libs() {
+    LIBGIT2_LIBS=$(find "$1" -name libgit2* | xargs file | grep ELF | sed 's/\(.*\):\(.*\)/\1/')
+}
+
+fix-libgit2() {
+    find-libgit2-libs "$1"
+    echoerr "  |"
+    echoerr "  +- Fixing libz for libgit2 libraries:"
+    for lib in ${LIBGIT2_LIBS}; do
+	[ -e "$lib" ] || continue
+	fix-libz "$lib"
+    done
 }
 
 fix-libz() {
-    echoerr "  Fixing libz dependencies for library: $1"
+    echoerr "     |"
+    echoerr "     +- Fixing libz dependencies for: $1"    
     ZLIB_PACKAGE_PATH=`guix build zlib | grep -v '\(.*\)-zlib\(-.*\)\(-.*\)'`
     ZLIB_PATH="${ZLIB_PACKAGE_PATH}/lib/libz.so.1"
     patchelf --replace-needed libz.so.1 ${ZLIB_PATH} "$1"
 }
 
 fix-libX11() {
-    echoerr "  Fixing libX11 dependency at $1"
+    echoerr "  |"    
+    echoerr "  +- Fixing libX11 dependency at $1"
     LIBX11_PACKAGE_PATH=`guix build libx11 | grep -v '\(.*\)-libx11\(-.*\)\(-.*\)'`
     LIBX11_PATH="${LIBX11_PACKAGE_PATH}/lib/libX11.so.6"
-    ln -s "${LIBX11_PATH}" "$1" 
+    ln -s "${LIBX11_PATH}" "$(dirname $PHARO_LIB)" 
 }
 
 fix-libXext() {
-    echoerr "  Fixing libXext dependency at $1"
+    echoerr "  |"    
+    echoerr "  +- Fixing libXext dependency at $1"
     LIBXEXT_PACKAGE_PATH=`guix build libxext | grep -v '\(.*\)-libxext\(-.*\)\(-.*\)'`
     LIBXEXT_PATH="${LIBXEXT_PACKAGE_PATH}/lib/libXext.so.6"
-    ln -s "${LIBXEXT_PATH}" "$1" 
+    ln -s "${LIBXEXT_PATH}" "$(dirname $PHARO_LIB)" 
 }
 
 guixify-vm() {
-    echoerr  "Patching Pharo VM [$1] for GNU Guix:"
-    fix-paths "$1/pharo"
-    fix-interpreter "$1/lib/pharo"
-    for lib in "$1"/lib/libgit2.*; do
-	[ -e "$lib" ] || continue
-	fix-libz "$lib"
-    done
-    fix-libX11 "$1/lib"
-    fix-libXext "$1/lib"
+    echoerr  "Patching Pharo VM at [$1] for GNU Guix:"
+    #fix-paths "$1/pharo"
+    fix-shell-scripts-paths "$1"
+    fix-interpreter "$1"
+    fix-libgit2 "$1"
+    fix-libX11 "$1"
+    fix-libXext "$1"
 }
 
 # downloads Pharo VM and/or Pharo image using Zeroconf script
@@ -67,5 +103,5 @@ fi
 echoerr "Invoking Zeroconf script with URL $1..."
 $DOWNLOAD $1 | bash
 
-guixify-vm ./pharo-vm
+guixify-vm "$(pwd)"
 
