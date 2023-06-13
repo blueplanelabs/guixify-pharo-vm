@@ -5,6 +5,20 @@ Shell script to get the Pharo VM and fix paths and libraries in order to work wi
 The `guixify-pharo` script first`` downloads the Pharo VMs and images using the Pharo Zeroconf tool (you can read info about the Pharo Zeroconf at http://get.pharo.org/),
 then it proceeds to apply some fixes and patches in order to make the VM usable in GNU Guix.
 
+## Usage
+
+By default the script downloads and fixes the latest Pharo stable VM and image:
+
+```./guixify-pharo https://get.pharo.org```
+
+You can download other versions available in the form (where version=90,80,70...):
+
+```
+./guixify-pharo https://get.pharo.org/[version]+vm
+```
+
+You can check all available forms at https://get.pharo.org/archive/80/
+
 ## Fixes for GNU Guix
 
 GNU Guix does not conform to the Filesystem Hierarchy Standard (FHS). In practical terms, this means there is no global 
