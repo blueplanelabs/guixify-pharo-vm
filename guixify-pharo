@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+
+# stop the script if a single command fails
+set -e
+
+# define an echo that only outputs to stderr
+echoerr() { echo "$@" 1>&2; }
+
+fix-paths() {
+    echoerr "  Fixing paths for script: $1"
+    sed -i "s,/usr/bin/dirname,$(which dirname),g" "$1"
+    sed -i "s,/usr/bin/ldd,$(which ldd),g" "$1"
+    sed -i "s,/bin/fgrep,$(which fgrep),g" "$1"    
+}
+
+fix-interpreter() {
+    echoerr "  Fixing dynamic interpreter for library: $1"
+    GLIBC_PATH=`guix build glibc | grep -v '\(.*\)-glibc\(-.*\)\(-.*\)'`
+    INTERPRETER_PATH="${GLIBC_PATH}/lib/ld-linux-x86-64.so.2"
+    patchelf --set-interpreter ${INTERPRETER_PATH} "$1"
+}
+
+fix-libz() {
+    echoerr "  Fixing libz dependencies for library: $1"
+    ZLIB_PACKAGE_PATH=`guix build zlib | grep -v '\(.*\)-zlib\(-.*\)\(-.*\)'`
+    ZLIB_PATH="${ZLIB_PACKAGE_PATH}/lib/libz.so.1"
+    patchelf --replace-needed libz.so.1 ${ZLIB_PATH} "$1"
+}
+
+fix-libX11() {
+    echoerr "  Fixing libX11 dependency at $1"
+    LIBX11_PACKAGE_PATH=`guix build libx11 | grep -v '\(.*\)-libx11\(-.*\)\(-.*\)'`
+    LIBX11_PATH="${LIBX11_PACKAGE_PATH}/lib/libX11.so.6"
+    ln -s "${LIBX11_PATH}" "$1" 
+}
+
+fix-libXext() {
+    echoerr "  Fixing libXext dependency at $1"
+    LIBXEXT_PACKAGE_PATH=`guix build libxext | grep -v '\(.*\)-libxext\(-.*\)\(-.*\)'`
+    LIBXEXT_PATH="${LIBXEXT_PACKAGE_PATH}/lib/libXext.so.6"
+    ln -s "${LIBXEXT_PATH}" "$1" 
+}
+
+guixify-vm() {
+    echoerr  "Patching Pharo VM [$1] for GNU Guix:"
+    fix-paths "$1/pharo"
+    fix-interpreter "$1/lib/pharo"
+    for lib in "$1"/lib/libgit2.*; do
+	[ -e "$lib" ] || continue
+	fix-libz "$lib"
+    done
+    fix-libX11 "$1/lib"
+    fix-libXext "$1/lib"
+}
+
+# downloads Pharo VM and/or Pharo image using Zeroconf script
+#   try to use curl if possible
+if [[ `which curl 2> /dev/null` ]]; then
+	DOWNLOAD="curl --silent --location --compressed ";
+elif [[ `which wget 2> /dev/null` ]]; then
+	DOWNLOAD="wget --quiet --output-document=-";
+else
+	echo "Please install curl or wget on your machine";
+	exit 1
+fi
+
+echoerr "Invoking Zeroconf script with URL $1..."
+$DOWNLOAD $1 | bash
+
+guixify-vm ./pharo-vm
+
